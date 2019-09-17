@@ -253,6 +253,7 @@
             .attr("fill", function (d) { return colors(d.key) })
             .attr("title", function (d) { return d.key; })
             .on("mouseover",function(d){ createTooltip(d)})
+           .on("mousemove", function (d) { createTooltip(d) })
             .on("mouseout", function (d) { removeTooltip(d) });;
 
         focus.append("g")
