@@ -1,0 +1,513 @@
+<!-- 
+    //sources
+    https://bl.ocks.org/mbostock/34f08d5e11952a80609169b7917d4172
+    raw chart bump chart code on github
+-->
+
+<!doctype html>
+<html>
+<meta charset="utf-8">
+
+<head>
+    <link href="https://fonts.googleapis.com/css?family=Raleway" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <script src="libs/jquery-1.7.2.min.js"></script>
+    <script src="libs/d3.v4.min.js"></script>
+    <script src="libs/d3-area-label.js"></script>
+</head>
+
+<body id="page">
+    
+    <h2 >OECD campaigns</h2>
+    <div id="chart">
+        <div id="chart-tooltip">
+            <p class="tooltip-type"></p>
+            <p class="tooltip-title"></p>
+            <p class="tooltip-explanation"></p>
+        </div>
+    </div>
+
+</body>
+
+<script>
+
+    var width = window.innerWidth;
+    var height = 4*window.innerHeight/4;
+
+    var padding=0;
+
+    var colors = d3.scaleOrdinal()
+            .domain(["I am the future of work","Climate","Inequality/inclusivegrowth","Development","Going Digital","BetterLives"])
+            .range(["#8cc841", "#B89130", "#66407C", "#06215C", "#06838f", "#ffc20e"]);
+   
+    var parseTime = d3.timeParse("%d/%m/%Y");
+    var formatTime = d3.timeFormat("%m/%Y")
+   
+    var svg = d3.select("#chart")
+        .append("svg").attr("width", width).attr("height", height)
+
+    var topMargin2= height-100;
+
+    var margin = { top: 100, right: 20, bottom: 140, left: 40 },
+        margin2 = { top: topMargin2, right: 20, bottom: 30, left: 40 },
+        width = +svg.attr("width") - margin.left - margin.right,
+        height = +svg.attr("height") - margin.top - margin.bottom,
+        height2 = +svg.attr("height") - margin2.top - margin2.bottom;
+
+    svg.append("defs").append("clipPath")
+        .attr("id", "clip")
+        .append("rect")
+        .attr("width", width)
+        .attr("height", height);
+
+   // var g = svg.append('g')
+     //   .attr('transform', "translate(" + margin.left + " " + margin.top + ")");
+
+
+    var focus = svg.append("g")
+        .attr("class", "focus")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+    var context = svg.append("g")
+        .attr("class", "context")
+        .attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+    var legend = svg.append("g")
+        .attr("class", "legend")
+        .attr("transform", "translate(" + margin2.left + "," + 20 + ")");    
+
+    var x = d3.scaleTime().range([0, width]),
+            x2 = d3.scaleTime().range([0, width]),
+            y = d3.scaleLinear(),
+            y2 = d3.scaleLinear();
+    
+
+    var xAxis = d3.axisBottom(x),
+        xAxis2 = d3.axisBottom(x2);
+
+
+
+    var event = [];
+        
+    var counter=0;
+    d3.tsv("data/data.tsv", function (data) { 
+        data.forEach(function (d) {
+            counter++;      
+            event.push(d) ;
+        });
+        if (counter == data.length){
+            formatData(event);
+        }
+    })
+
+
+
+
+
+    function formatData(data_temp){
+        var keys= [];
+        var values=[];
+        var date=[];
+        
+        data_temp.forEach(function (d) {
+            var topush = true;
+            date.forEach(function (k) {
+                if (k == d.date)
+                    topush = false;
+            })
+            if (topush == true)
+                date.push(d.date)
+        })
+
+        data_temp.forEach(function (d){
+            var topush=true;
+            keys.forEach(function(k){
+                if(k== d.campaigns)
+                    topush = false;
+            })
+            if(topush==true)
+                keys.push(d.campaigns)
+        })
+
+        date.sort(function (a, b) { return parseTime(a) - parseTime(b); }).forEach(function(d){
+            var json={};
+            
+            keys.forEach(function (v) {
+                json[v] = data_temp.filter(function (k) { return k.date == d; }).filter(x => x.campaigns === v).length
+             })
+            json["date"] = d;
+            values.push(json)
+
+        })
+
+        var data_chart={}
+        data_chart["values"]=values;
+        data_chart["keys"] =keys
+        drawChart(data_chart)
+        
+    }
+
+    function drawChart(data) {
+        
+        var brush = d3.brushX()
+            .extent([[0, 0], [width, height2]])
+            .on("brush end", brushed);
+
+        var zoom = d3.zoom()
+            .scaleExtent([1, Infinity])
+            .translateExtent([[0, 0], [width, height]])
+            .extent([[0, 0], [width, height]])
+            .on("zoom", zoomed);
+
+
+        var curves = curveSankey; 
+
+
+        var stack = d3.stack()
+            .keys(data.keys)
+            .offset(d3.stackOffsetNone);// or  d3.stackOffsetExpand);
+
+        var layers = stack(data.values);
+
+
+        
+        x.domain(d3.extent(data.values, function (d) { return parseTime(d.date); }));
+        x2.domain(x.domain());
+
+        y.range([0, height - 20 - padding * (layers.length - 1)]),
+        y2.range([0, height2]);
+
+        y.domain([d3.min(layers, stackMin), d3.max(layers, stackMax)]);
+        y2.domain(y.domain());
+          
+        //sort layers by size
+        for (var i = 0; i < layers[0].length; i++) {
+
+            var values = layers.map(function (layer) {
+                return layer[i];
+            })
+                .sort(sortBy);
+
+            var sum = d3.sum(values, function (layer) { return layer[1] - layer[0]; });
+
+            var y0 = (y.domain()[1] - sum) / 2;
+
+            values.forEach(function (layer, li) {
+                var yd = layer[1] - layer[0];
+                layer[0] = y0;
+                layer[1] = y0 + yd;
+
+                //increase y0
+                y0 += yd + y.invert(padding);
+            });
+        }
+
+        function stackMax(layer) {
+            return d3.max(layer, function (d) { return d[1]; });
+        }
+
+        function stackMin(layer) {
+            return d3.min(layer, function (d) { return d[0]; });
+        }
+
+        colors.domain(data.keys);
+
+
+
+        var area = d3.area()
+            //.curve(curves[curve()])
+            .curve(curves)
+            .x(function (d) { return x(parseTime(d.data.date)); })
+            .y0(function (d) { return y(d[0]); })
+            .y1(function (d) { return y(d[1]); });
+
+        var area2 = d3.area()
+            //.curve(curves[curve()])
+            .curve(curves)
+            .x(function (d) { return x2(parseTime(d.data.date)); })
+            .y0(function (d) { return y2(d[0]); })
+            .y1(function (d) { return y2(d[1]); });
+
+        var line = d3.line()
+            //.curve(curves[curve()])
+            .curve(curves)
+            .x(function (d) { return x(parseTime(d.data.date)); })
+            .y(function (d) {
+                return y(d[0] + (d[1] - d[0]) / 2);
+            });
+
+         var line2 = d3.line()
+            //.curve(curves[curve()])
+            .curve(curves)
+            .x(function (d) { return x2(parseTime(d.data.date)); })
+            .y(function (d) {
+                return y2(d[0] + (d[1] - d[0]) / 2);
+            });  
+     
+       focus.selectAll("path.layer")
+            .data(layers)
+            .enter().append("path")
+            .attr("class", "layer")
+            .attr("id", function (d) { return removeSpecialChars(d.key); })
+            .attr("d", area)
+            .attr("fill", function (d) { return colors(d.key) })
+            .attr("title", function (d) { return d.key; })
+            .on("mouseover",function(d){ createTooltip(d)})
+            .on("mouseout", function (d) { removeTooltip(d) });;
+
+        focus.append("g")
+            .attr("class", "x axis axis--x")
+            .style("stroke-width", "1px")
+            .style("font-size", "10px")
+            .style("font-family", "Arial, Helvetica")
+            .attr("transform", "translate(" + 0 + "," + (height-20) + ")")
+            .call(xAxis.tickSize(-height  ))
+            .call(g =>g.selectAll(".domain")
+                .remove())
+            .call(g => g.selectAll(".tick")
+                .attr("stroke-opacity", 0.5)
+                .attr("stroke-dasharray", "2,2")
+                .attr("stroke", "#162713")
+                .style("fill","#162713"))
+            
+
+ 
+    
+        context.selectAll("path.layer")
+        .data(layers)
+        .enter().append("path")
+            .attr("class", "layer")
+            .attr("d", area2)
+            .attr("fill", function (d) { return colors(d.key) })
+            .attr("title", function (d) { return d.key; });
+
+        context.append("g")
+            .attr("class", "x axis axis--x")
+            .style("stroke-width", "1px")
+            .style("font-size", "10px")
+            .style("font-family", "Arial, Helvetica")
+            .attr("transform", "translate(" + 0 + "," + (height2 ) + ")")
+            .call(xAxis2);
+            
+            
+        context.selectAll(".x.axis line, .x.axis path")
+            .style("shape-rendering", "crispEdges")
+            .style("fill", "none")
+            .style("stroke", "#ccc")
+
+
+        context.append("g")
+            .attr("class", "brush")
+            .call(brush)
+            .call(brush.move, x.range());
+
+        //Remove that part to allow for mouse over and extra info
+       /* svg.append("rect")
+            .attr("class", "zoom")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+            .call(zoom);**/
+ 
+ 
+        function brushed() {
+            if (d3.event.sourceEvent && d3.event.sourceEvent.type === "zoom") return; // ignore brush-by-zoom
+            var s = d3.event.selection || x2.range();
+            x.domain(s.map(x2.invert, x2));
+            focus.selectAll(".layer").attr("d", area);
+            focus.select(".axis--x").call(xAxis).call(g => g.selectAll(".tick")
+                .attr("stroke-opacity", 0.5)
+                .attr("stroke-dasharray", "2,2")
+                .attr("stroke", "#162713")
+                .style("fill", "#162713"));
+            svg.select(".zoom").call(zoom.transform, d3.zoomIdentity
+                .scale(width / (s[1] - s[0]))
+                .translate(-s[0], 0));
+        }
+
+        function zoomed() {
+            if (d3.event.sourceEvent && d3.event.sourceEvent.type === "brush") return; // ignore zoom-by-brush
+            var t = d3.event.transform;
+            x.domain(t.rescaleX(x2).domain());
+            focus.selectAll(".layer").attr("d", area);
+            focus.select(".axis--x").call(xAxis);
+            context.select(".brush").call(brush.move, x.range().map(t.invertX, t));
+        } 
+        
+
+
+
+        legend.selectAll("rect")
+            .data(data.keys)
+            .enter()
+            .append('rect')
+            .attr('x', function (d, i) { return i * 225; })
+            .attr('y', 0)
+            .attr('width', 20)
+            .attr('height', 20)
+            .style('fill', function (d) {
+                return colors(d);
+            })
+            .on("mouseover",function(d){
+                highlightLegend(d,data.keys);
+            })
+            .on("mouseout", function (d) {
+                highlightLegendStop(d, data.keys);
+            });
+
+        legend.selectAll("text")
+            .data(data.keys)
+            .enter()
+            .append('text')
+            .attr('x', function (d, i) { return (i * 225) + 25; })
+            .attr('y', 15)
+            .text(function (d) { return d;});
+    }
+
+
+
+        //sorting functions
+        function sortBy(a, b) {
+            return (b[1] - b[0]) - (a[1] - a[0]);
+        }
+
+        //Sankey interpolator. Could be moved in a better place.
+        function CurveSankey(context) {
+            this._context = context;
+        }
+
+        CurveSankey.prototype = {
+            areaStart: function () {
+                this._line = 0;
+            },
+            areaEnd: function () {
+                this._line = NaN;
+            },
+            lineStart: function () {
+                this._x = this._y = NaN;
+                this._point = 0;
+            },
+            lineEnd: function () {
+                if (this._line || (this._line !== 0 && this._point === 1)) this._context.closePath();
+                this._line = 1 - this._line;
+            },
+            point: function (x, y) {
+                x = +x, y = +y;
+                switch (this._point) {
+                    case 0:
+                        this._point = 1;
+                        this._line ? this._context.lineTo(x, y) : this._context.moveTo(x, y);
+                        break;
+                    case 1:
+                        this._point = 2; // proceed
+                    default:
+                        var mx = (x - this._x) / 2 + this._x;
+                        this._context.bezierCurveTo(mx, this._y, mx, y, x, y);
+                        break;
+                }
+                this._x = x, this._y = y;
+            }
+        };
+
+        var curveSankey = function (context) {
+            return new CurveSankey(context);
+        }    
+    
+
+ function removeSpecialChars(strVal) {
+        strVal = strVal.replace(/[-\/\\^$*+?.()|[\]{}\ ]/g ,"");
+        return strVal;
+    }
+
+
+    function createTooltip(d) {
+        var xPos = d3.event.pageX
+        var yPos = d3.event.pageY
+
+
+        
+
+        var dateSelected= "01/"+ formatTime(x.invert(xPos - margin.left))
+        var filteredEvent= event.filter(function(k){return k.campaigns==d.key & k.date== dateSelected})
+        
+        var eventList="";
+        filteredEvent.forEach(function (k) { 
+            eventList = eventList +k.Event +"<Br/>";
+         })
+        
+        
+        
+        
+        var pathhighlight= "#"+removeSpecialChars(d.key)
+        d3.select(pathhighlight)
+            .style("opacity",0.75);
+
+        label = d.key.replace(/-/g, " ");
+        
+        d3.select("#chart-tooltip")
+            .style("border", null)
+            .style("box-shadow", null)
+
+        if(eventList=="")
+            eventList="nothing planned this month related to this campaign"
+        //Change titles
+        d3.select("#chart-tooltip .tooltip-type").html(formatTime(x.invert(xPos - margin.left)))
+        d3.select("#chart-tooltip .tooltip-title").html(label)
+        d3.select("#chart-tooltip .tooltip-explanation").html(eventList)
+
+        let box_size = document.getElementById("chart-tooltip").getBoundingClientRect()
+
+
+        if (xPos > width - 200)
+            xPos = width - 200;
+        //Place & show the tooltip
+        d3.select("#chart-tooltip")
+            .style("top", (yPos + 30 + "px"))
+            //.style("top", ("500"+ "px"))
+            .style("left", (xPos + 30 + "px"))
+            .style("opacity", 1)
+
+        
+
+    }//function createTooltip
+
+    function removeTooltip(d) {
+        
+        var pathhighlight = "#" + removeSpecialChars(d.key)
+        d3.select(pathhighlight)
+            .style("opacity", 1);
+
+        //Hide the tooltip
+        d3.select("#chart-tooltip").style("opacity", 0)
+
+        //make nodes and edges a
+
+    }//function removeTooltip
+        
+
+    function highlightLegend(d,datakeys) {
+        
+        datakeys.forEach(function(k){
+            if(k!=d){
+                var pathhighlight = "#" + removeSpecialChars(k)
+                d3.select(pathhighlight)
+                 .style("opacity", 0.15);
+            }
+        })
+        
+    }
+
+    function highlightLegendStop(d, datakeys) {
+
+        datakeys.forEach(function (k) {
+                var pathhighlight = "#" + removeSpecialChars(k)
+                d3.select(pathhighlight)
+                    .style("opacity", 1);
+            
+        })
+
+    }
+       
+    
+</script>
+</html>
