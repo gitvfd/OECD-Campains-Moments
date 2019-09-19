@@ -23,7 +23,8 @@
         <div id="chart-tooltip">
             <p class="tooltip-type"></p>
             <p class="tooltip-title"></p>
-            <p class="tooltip-explanation"></p>
+            <p class="tooltip-subtitle"></p>
+            <p class="tooltip-campEvent"></p>
         </div>
     </div>
 
@@ -36,10 +37,29 @@
 
     var padding=0;
 
-    var colors = d3.scaleOrdinal()
-            .domain(["I am the future of work","Climate","Inequality/inclusivegrowth","Development","Going Digital","BetterLives"])
-            .range(["#8cc841", "#B89130", "#66407C", "#06215C", "#06838f", "#ffc20e"]);
+    var colors = d3.scaleOrdinal();
+           // .domain(["I am the future of work","Climate","Inequality/inclusivegrowth","Development","Going Digital","BetterLives"])
+           // .range(["#8cc841", "#B89130", "#66407C", "#06215C", "#06838f", "#ffc20e"]);
    
+    var colorDomain=[];
+    var colorRange = [];
+
+
+    var counterColor = 0;
+    d3.tsv("data/campaignList.tsv", function (data) {console.log(data)
+            data.forEach(function (d) {
+                counterColor++;
+                colorDomain.push(d.campaignName);
+                colorRange.push(d.colorCode);
+            });
+            if (counterColor == data.length) {
+                console.log(colorDomain)
+                console.log(colorRange)
+            colors.domain(colorDomain)
+            colors.range(colorRange)
+            }
+        })
+
     var parseTime = d3.timeParse("%d/%m/%Y");
     var formatTime = d3.timeFormat("%m/%Y")
    
@@ -454,7 +474,8 @@
         //Change titles
         d3.select("#chart-tooltip .tooltip-type").html(formatTime(x.invert(xPos - margin.left)))
         d3.select("#chart-tooltip .tooltip-title").html(label)
-        d3.select("#chart-tooltip .tooltip-explanation").html(eventList)
+        d3.select("#chart-tooltip .tooltip-subtitle").html("Campaign events:")
+        d3.select("#chart-tooltip .tooltip-campEvent").html(eventList)
 
         let box_size = document.getElementById("chart-tooltip").getBoundingClientRect()
 
